@@ -12,6 +12,7 @@
 
     var STORAGE_KEY = 'hollow_frost_unlocked_level';
     var completionReported = false;
+    var nextLevelCheckInProgress = false;
 
     function readUnlocked() {
         try {
@@ -30,20 +31,38 @@
         }
     }
 
-    function reportCompletion() {
+    function nextLevelExists() {
+        var nextLevel = level + 1;
+        return fetch('./levels/level_' + nextLevel + '.json', {
+            method: 'GET',
+            cache: 'no-store'
+        }).then(function (response) {
+            if (!response.ok) throw new Error('Next level returned HTTP ' + response.status);
+            return response.json();
+        }).then(function (data) {
+            if (!data || typeof data !== 'object') throw new Error('Next level is not valid JSON');
+            return true;
+        });
+    }
+
+    function reportCompletion(nextLevelAvailable) {
         if (completionReported) return;
         completionReported = true;
 
         var nextLevel = level + 1;
-        var unlocked = Math.max(readUnlocked(), nextLevel);
-        writeUnlocked(unlocked);
+        var unlocked = nextLevelAvailable ? Math.max(readUnlocked(), nextLevel) : readUnlocked();
+
+        if (nextLevelAvailable) {
+            writeUnlocked(unlocked);
+        }
 
         if (window.parent && window.parent !== window) {
             window.parent.postMessage({
                 type: 'hollow-frost-level-complete',
                 level: level,
-                nextLevel: nextLevel,
-                unlockedLevel: unlocked
+                nextLevel: nextLevelAvailable ? nextLevel : null,
+                unlockedLevel: unlocked,
+                nextLevelAvailable: nextLevelAvailable
             }, window.location.origin);
         }
     }
@@ -53,19 +72,33 @@
         var startButton = document.getElementById('startBtn');
         if (!title || !startButton) return;
 
-        /* game.js shows this exact screen after the treasure is reached. */
+        /*
+         * game.js currently reaches this screen after the treasure is taken.
+         * Only treat it as a progression point once we know the next JSON
+         * level actually exists. If it does not exist, leave the original
+         * "Next level coming soon" message alone.
+         */
         if (
             title.textContent.trim() === 'Next level coming soon' &&
-            startButton.textContent.trim() === 'Play again'
+            startButton.textContent.trim() === 'Play again' &&
+            !nextLevelCheckInProgress
         ) {
-            reportCompletion();
+            nextLevelCheckInProgress = true;
+
+            nextLevelExists().then(function () {
+                title.textContent = 'Level complete!';
+                startButton.textContent = 'Continue';
+                reportCompletion(true);
+            }).catch(function () {
+                /* No next level: keep "Next level coming soon" exactly as-is. */
+                nextLevelCheckInProgress = false;
+            });
         }
     }
 
     /*
      * Start a level exactly once for each parent request.
-     * index.html used to retry the same message every 150ms, which caused
-     * startBtn.click() -> resetRun() to run repeatedly for about a second.
+     * Never repeatedly click Start while the game is already running.
      */
     window.addEventListener('message', function (event) {
         if (event.origin !== window.location.origin) return;
@@ -79,7 +112,6 @@
         var startButton = document.getElementById('startBtn');
         if (!startButton) return;
 
-        /* Do not start an already-running game. */
         var overlay = document.getElementById('overlay');
         if (overlay && overlay.classList.contains('hidden')) return;
 
@@ -94,5 +126,5 @@
     });
 
     window.addEventListener('load', checkCompletion);
-    setInterval(checkCompletion, 100);
+    setInterval(checkCompletion, 250);
 })();
