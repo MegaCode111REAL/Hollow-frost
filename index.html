@@ -7,12 +7,9 @@
     <link rel="stylesheet" href="./style.css">
     <link rel="stylesheet" href="./menu.css">
 </head>
-
 <body class="menu-page">
-
 <div class="menu-viewport">
     <div id="menuTrack" class="menu-track">
-
         <section class="menu-panel menu-panel--home" aria-label="Home">
             <main class="home-screen">
                 <div class="mountains" aria-hidden="true">
@@ -20,10 +17,8 @@
                     <div class="mountain mountain-middle"></div>
                     <div class="mountain mountain-front"></div>
                 </div>
-
                 <section class="home-content">
                     <h1 class="game-title">HOLLOW FROST</h1>
-
                     <nav class="main-menu">
                         <button class="menu-button" id="levelsButton" type="button">Levels</button>
                         <a class="menu-button" href="./custom.html">Custom</a>
@@ -32,55 +27,33 @@
                 </section>
             </main>
         </section>
-
-        <!-- Loaded immediately so the selector is already rendered before the slide. -->
         <section class="menu-panel menu-panel--levels" aria-label="Level Select">
-            <iframe
-                id="levelsFrame"
-                class="menu-frame"
-                src="./levels.html"
-                title="Hollow Frost level select"
-                loading="eager"
-            ></iframe>
+            <iframe id="levelsFrame" class="menu-frame" src="./levels.html" title="Hollow Frost level select" loading="eager"></iframe>
         </section>
-
-        <!-- Level 1 is preloaded while the player is on the home screen. -->
         <section class="menu-panel menu-panel--game" aria-label="Game">
-            <iframe
-                id="gameFrame"
-                class="menu-frame menu-frame--game"
-                src="./game.html?level=1"
-                title="Hollow Frost game"
-                loading="eager"
-            ></iframe>
+            <iframe id="gameFrame" class="menu-frame menu-frame--game" src="./game.html?level=1" title="Hollow Frost game" loading="eager"></iframe>
         </section>
     </div>
-
     <div id="transitionVeil" class="menu-transition-veil"></div>
 </div>
-
 <script>
 (function () {
     'use strict';
-
     var track = document.getElementById('menuTrack');
     var levelsFrame = document.getElementById('levelsFrame');
     var gameFrame = document.getElementById('gameFrame');
     var levelsButton = document.getElementById('levelsButton');
     var veil = document.getElementById('transitionVeil');
-
     var currentPanel = 'home';
     var currentGameLevel = 1;
-    var pendingStart = false;
+    var loadedGameLevel = null;
+    var pendingStart = null;
 
-    function origin() {
-        return window.location.origin;
-    }
+    function origin() { return window.location.origin; }
 
     function setPanel(panel) {
         currentPanel = panel;
         track.classList.remove('show-levels', 'show-game');
-
         if (panel === 'levels') track.classList.add('show-levels');
         if (panel === 'game') track.classList.add('show-game');
     }
@@ -89,10 +62,19 @@
         veil.classList.add('active');
         window.setTimeout(function () {
             callback();
-            window.setTimeout(function () {
-                veil.classList.remove('active');
-            }, 80);
+            window.setTimeout(function () { veil.classList.remove('active'); }, 80);
         }, 90);
+    }
+
+    function postStart(level) {
+        if (loadedGameLevel !== level) return false;
+        try {
+            gameFrame.contentWindow.postMessage({ type: 'hollow-frost-start-level', level: level }, origin());
+            pendingStart = null;
+            return true;
+        } catch (error) {
+            return false;
+        }
     }
 
     function startLevel(level) {
@@ -103,58 +85,24 @@
         try {
             unlocked = Math.max(1, Number.parseInt(localStorage.getItem('hollow_frost_unlocked_level') || '1', 10));
         } catch (error) {}
-
         if (level > unlocked) return;
 
-        pendingStart = true;
-
-        /*
-         * If the requested level isn't already in the hidden game frame,
-         * load it while the selector is still visible. The slide happens
-         * only after the iframe has had a chance to initialize.
-         */
+        pendingStart = level;
         if (currentGameLevel !== level) {
             currentGameLevel = level;
+            loadedGameLevel = null;
             gameFrame.src = './game.html?level=' + encodeURIComponent(level);
         }
 
         softTransition(function () {
             setPanel('game');
-            sendStartWhenReady(level);
-        });
-    }
-
-    function sendStartWhenReady(level) {
-        var attempts = 0;
-
-        function send() {
-            attempts++;
-            try {
-                gameFrame.contentWindow.postMessage({
-                    type: 'hollow-frost-start-level',
-                    level: level
-                }, origin());
-            } catch (error) {}
-
-            if (attempts < 30 && pendingStart) {
-                window.setTimeout(send, 150);
-            }
-        }
-
-        send();
-    }
-
-    function returnToLevels() {
-        pendingStart = false;
-        softTransition(function () {
-            setPanel('levels');
+            /* Already loaded? Send once. Still loading? load handler sends once. */
+            postStart(level);
         });
     }
 
     levelsButton.addEventListener('click', function () {
-        softTransition(function () {
-            setPanel('levels');
-        });
+        softTransition(function () { setPanel('levels'); });
     });
 
     window.addEventListener('message', function (event) {
@@ -166,45 +114,41 @@
             if (event.data.type === 'hollow-frost-start-level') {
                 startLevel(event.data.level);
             } else if (event.data.type === 'hollow-frost-back-home') {
-                softTransition(function () {
-                    setPanel('home');
-                });
+                softTransition(function () { setPanel('home'); });
             }
         }
 
-        if (event.source === gameFrame.contentWindow) {
-            if (event.data.type === 'hollow-frost-level-complete') {
-                pendingStart = false;
+        if (event.source === gameFrame.contentWindow && event.data.type === 'hollow-frost-level-complete') {
+            pendingStart = null;
 
-                /*
-                 * Preload the next level before the selector becomes visible.
-                 * This is the important part: the next game's fetch/initialization
-                 * happens while the player is looking at the level select.
-                 */
-                if (event.data.nextLevel) {
-                    currentGameLevel = Number(event.data.nextLevel);
-                    gameFrame.src = './game.html?level=' + encodeURIComponent(currentGameLevel);
-                }
-
-                softTransition(function () {
-                    setPanel('levels');
-                    levelsFrame.contentWindow.postMessage({
-                        type: 'hollow-frost-refresh-levels'
-                    }, origin());
-                });
+            if (event.data.unlockedLevel) {
+                try {
+                    localStorage.setItem('hollow_frost_unlocked_level', String(event.data.unlockedLevel));
+                } catch (error) {}
             }
+
+            if (event.data.nextLevel) {
+                currentGameLevel = Number(event.data.nextLevel);
+                loadedGameLevel = null;
+                gameFrame.src = './game.html?level=' + encodeURIComponent(currentGameLevel);
+            }
+
+            softTransition(function () {
+                setPanel('levels');
+                levelsFrame.contentWindow.postMessage({
+                    type: 'hollow-frost-refresh-levels',
+                    unlockedLevel: event.data.unlockedLevel
+                }, origin());
+            });
         }
     });
 
     gameFrame.addEventListener('load', function () {
-        if (!pendingStart) return;
-
         var match = gameFrame.src.match(/[?&]level=(\d+)/);
-        var level = match ? Number.parseInt(match[1], 10) : currentGameLevel;
-        sendStartWhenReady(level);
+        loadedGameLevel = match ? Number.parseInt(match[1], 10) : currentGameLevel;
+        if (pendingStart === loadedGameLevel) postStart(loadedGameLevel);
     });
 })();
 </script>
-
 </body>
 </html>
