@@ -53,7 +53,7 @@
 
 /* Subtle motion is intentionally continuous, not attention-grabbing. */
 .main-menu .menu-button {
-    animation: menuButtonFloat 3s ease-in-out infinite;
+    animation: menuButtonFloat 4s ease-in-out infinite;
     will-change: transform;
 }
 
@@ -66,8 +66,8 @@
 }
 
 @keyframes menuButtonFloat {
-    0%, 100% { transform: translateY(-2px); }
-    50% { transform: translateY(2px); }
+    0%, 100% { transform: translateY(-0.5px); }
+    50% { transform: translateY(0.5px); }
 }
 
 .menu-transition-veil {
