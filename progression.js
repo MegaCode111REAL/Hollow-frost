@@ -11,7 +11,7 @@
     if (!Number.isFinite(level) || level < 1) level = 1;
 
     var STORAGE_KEY = 'hollow_frost_unlocked_level';
-    var reported = false;
+    var completionReported = false;
 
     function readUnlocked() {
         try {
@@ -24,15 +24,15 @@
 
     function writeUnlocked(value) {
         try {
-            localStorage.setItem(STORAGE_KEY, String(value));
+            localStorage.setItem(STORAGE_KEY, String(Math.max(1, value)));
         } catch (error) {
             console.warn('Could not save Hollow Frost progression.', error);
         }
     }
 
     function reportCompletion() {
-        if (reported) return;
-        reported = true;
+        if (completionReported) return;
+        completionReported = true;
 
         var nextLevel = level + 1;
         var unlocked = Math.max(readUnlocked(), nextLevel);
@@ -50,28 +50,40 @@
 
     function checkCompletion() {
         var title = document.getElementById('titleText');
-        if (!title) return;
+        var startButton = document.getElementById('startBtn');
+        if (!title || !startButton) return;
 
-        /* game.js currently uses this title when the treasure is reached. */
-        if (title.textContent.trim() === 'Next level coming soon') {
+        /* game.js shows this exact screen after the treasure is reached. */
+        if (
+            title.textContent.trim() === 'Next level coming soon' &&
+            startButton.textContent.trim() === 'Play again'
+        ) {
             reportCompletion();
         }
     }
 
-    /* Start/restart a level without navigating away from the preloaded game iframe. */
+    /*
+     * Start a level exactly once for each parent request.
+     * index.html used to retry the same message every 150ms, which caused
+     * startBtn.click() -> resetRun() to run repeatedly for about a second.
+     */
     window.addEventListener('message', function (event) {
         if (event.origin !== window.location.origin) return;
+        if (event.source !== window.parent) return;
         if (!event.data || typeof event.data !== 'object') return;
+        if (event.data.type !== 'hollow-frost-start-level') return;
 
-        if (event.data.type === 'hollow-frost-start-level') {
-            var requested = Number.parseInt(event.data.level, 10);
-            if (requested !== level) return;
+        var requested = Number.parseInt(event.data.level, 10);
+        if (requested !== level) return;
 
-            var startButton = document.getElementById('startBtn');
-            if (startButton && !startButton.classList.contains('hidden')) {
-                startButton.click();
-            }
-        }
+        var startButton = document.getElementById('startBtn');
+        if (!startButton) return;
+
+        /* Do not start an already-running game. */
+        var overlay = document.getElementById('overlay');
+        if (overlay && overlay.classList.contains('hidden')) return;
+
+        startButton.click();
     });
 
     var observer = new MutationObserver(checkCompletion);
@@ -82,5 +94,5 @@
     });
 
     window.addEventListener('load', checkCompletion);
-    setInterval(checkCompletion, 250);
+    setInterval(checkCompletion, 100);
 })();
